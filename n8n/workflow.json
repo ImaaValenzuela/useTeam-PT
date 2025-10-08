@@ -1,0 +1,136 @@
+{
+    "name": "Kanban Backlog Export to CSV",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "kanban-export",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "id": "webhook-node",
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 1,
+        "position": [250, 300],
+        "webhookId": "kanban-export"
+      },
+      {
+        "parameters": {
+          "functionCode": "// Transformar los datos del tablero Kanban a formato CSV\nconst items = $input.all();\nconst data = items[0].json.data;\nconst email = items[0].json.email;\n\n// Definir encabezados del CSV\nconst headers = ['ID', 'Título', 'Descripción', 'Columna', 'Fecha de Creación'];\n\n// Función para escapar campos CSV (manejar comillas y comas)\nfunction escapeCSV(field) {\n  if (field === null || field === undefined) {\n    return '';\n  }\n  const stringField = String(field);\n  // Si contiene comas, comillas o saltos de línea, envolver en comillas\n  if (stringField.includes(',') || stringField.includes('\"') || stringField.includes('\\n')) {\n    return '\"' + stringField.replace(/\"/g, '\"\"') + '\"';\n  }\n  return stringField;\n}\n\n// Construir CSV\nlet csvContent = headers.join(',') + '\\n';\n\ndata.forEach(item => {\n  const row = [\n    escapeCSV(item.id),\n    escapeCSV(item.title),\n    escapeCSV(item.description),\n    escapeCSV(item.column),\n    escapeCSV(new Date(item.createdAt).toLocaleString())\n  ];\n  csvContent += row.join(',') + '\\n';\n});\n\n// Convertir a Base64 para adjuntar como archivo\nconst base64CSV = Buffer.from(csvContent).toString('base64');\n\nreturn [\n  {\n    json: {\n      email: email,\n      csvContent: csvContent,\n      base64CSV: base64CSV,\n      totalCards: data.length,\n      timestamp: new Date().toISOString()\n    }\n  }\n];"
+        },
+        "id": "function-transform-csv",
+        "name": "Transform to CSV",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [450, 300]
+      },
+      {
+        "parameters": {
+          "fromEmail": "noreply@kanban-board.com",
+          "toEmail": "={{ $json.email }}",
+          "subject": "Exportación de Backlog Kanban - CSV",
+          "emailType": "html",
+          "message": "=<h2>📊 Exportación de Backlog Kanban</h2>\n<p>Hola,</p>\n<p>Adjunto encontrarás el archivo CSV con <strong>{{ $json.totalCards }}</strong> tarjetas del tablero Kanban.</p>\n<p><strong>Fecha de exportación:</strong> {{ $json.timestamp }}</p>\n<hr>\n<p>Este archivo incluye:</p>\n<ul>\n  <li>ID de cada tarjeta</li>\n  <li>Título y descripción</li>\n  <li>Columna actual</li>\n  <li>Fecha de creación</li>\n</ul>\n<p>Saludos,<br>Tu Tablero Kanban</p>",
+          "attachments": "data:text/csv;base64,={{ $json.base64CSV }}",
+          "options": {
+            "attachmentsPropertyName": "kanban-backlog-{{ $now.format('YYYY-MM-DD') }}.csv"
+          }
+        },
+        "id": "email-send",
+        "name": "Send Email",
+        "type": "n8n-nodes-base.emailSend",
+        "typeVersion": 2,
+        "position": [650, 300],
+        "credentials": {
+          "smtp": {
+            "id": "1",
+            "name": "SMTP Account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ { \"success\": true, \"message\": \"CSV sent successfully to \" + $json.email, \"totalCards\": $json.totalCards, \"timestamp\": $json.timestamp } }}"
+        },
+        "id": "webhook-response",
+        "name": "Webhook Response",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1,
+        "position": [850, 300]
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "string": [
+              {
+                "value1": "={{ $json.email }}",
+                "operation": "isNotEmpty"
+              }
+            ]
+          }
+        },
+        "id": "if-email-valid",
+        "name": "Validate Email",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 1,
+        "position": [350, 300]
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Validate Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Email": {
+        "main": [
+          [
+            {
+              "node": "Transform to CSV",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Transform to CSV": {
+        "main": [
+          [
+            {
+              "node": "Send Email",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Send Email": {
+        "main": [
+          [
+            {
+              "node": "Webhook Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "pinData": {},
+    "settings": {
+      "executionOrder": "v1"
+    },
+    "staticData": null,
+    "tags": [],
+    "triggerCount": 0,
+    "updatedAt": "2025-01-01T00:00:00.000Z",
+    "versionId": "1"
+  }
